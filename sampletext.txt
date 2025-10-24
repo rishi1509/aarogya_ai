@@ -1,0 +1,15 @@
+1.
+
+English	I woke up with this rash on my arm. What could it be? (Image of rash uploaded)
+Hindi	मेरी बांह पर यह दाने (रैश) निकल आए हैं। यह क्या हो सकता है?
+Marathi	माझ्या हातावर हे पुरळ (रॅश) आले आहे. हे काय असू शकते?
+
+
+2. English	I have uploaded a photo of my medicine bottle. I need to know if I can take this with alcohol tonight.
+Hindi	मैंने अपनी दवा की बोतल की फोटो अपलोड की है। मुझे जानना है कि क्या मैं इसे आज रात शराब के साथ ले सकता हूँ।
+Marathi	मी माझ्या औषधाच्या बाटलीचा फोटो अपलोड केला आहे. मला विचारायचे आहे की मी हे आज रात्री अल्कोहोलसोबत घेऊ शकतो का?
+
+
+3. English	Is it necessary to take an antibiotic for a common cold or flu?
+Hindi	क्या सामान्य सर्दी या फ्लू के लिए एंटीबायोटिक लेना जरूरी है?
+Marathi	सामान्य सर्दी किंवा फ्लूसाठी अँटिबायोटिक घेणे आवश्यक आहे का?

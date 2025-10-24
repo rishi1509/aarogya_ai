@@ -1,0 +1,330 @@
+weights_rom.v – for layer1 or layer2 weights
+module weights_rom #(
+    parameter DATA_WIDTH = 8,
+    parameter ADDR_WIDTH = 13,   // adjust based on number of weights
+    parameter MEM_FILE = "weights_l1.mem"
+)(
+    input  wire [ADDR_WIDTH-1:0] addr,
+    output reg  [DATA_WIDTH-1:0] data
+);
+
+    // Memory declaration
+    reg [DATA_WIDTH-1:0] mem [0:(1<<ADDR_WIDTH)-1];
+
+    initial begin
+        $readmemh(MEM_FILE, mem);
+    end
+
+    always @(*) begin
+        data = mem[addr];
+    end
+endmodule
+
+bias_rom.v – for layer1 or layer2 biases
+module bias_rom #(
+    parameter DATA_WIDTH = 16,
+    parameter ADDR_WIDTH = 3,  // 8 biases = 3 bits
+    parameter MEM_FILE = "bias_l1.mem"
+)(
+    input  wire [ADDR_WIDTH-1:0] addr,
+    output reg  [DATA_WIDTH-1:0] data
+);
+
+    reg [DATA_WIDTH-1:0] mem [0:(1<<ADDR_WIDTH)-1];
+
+    initial begin
+        $readmemh(MEM_FILE, mem);
+    end
+
+    always @(*) begin
+        data = mem[addr];
+    end
+endmodule
+
+img_bram.v – input image
+module img_bram #(
+    parameter DATA_WIDTH = 8,
+    parameter ADDR_WIDTH = 10,  // 784 pixels ≈ 10 bits
+    parameter MEM_FILE = "input_image.mem"
+)(
+    input  wire [ADDR_WIDTH-1:0] addr,
+    output reg  [DATA_WIDTH-1:0] data
+);
+
+    reg [DATA_WIDTH-1:0] mem [0:(1<<ADDR_WIDTH)-1];
+
+    initial begin
+        $readmemh(MEM_FILE, mem);
+    end
+
+    always @(*) begin
+        data = mem[addr];
+    end
+endmodule
+
+
+module mac_unit #(
+    parameter INPUTS = 784,
+    parameter DATA_WIDTH = 8,
+    parameter ACC_WIDTH = 32
+)(
+    input  wire clk,
+    input  wire rst,
+    input  wire start,
+    input  wire [DATA_WIDTH-1:0] pixel_in,
+    input  wire [DATA_WIDTH-1:0] weight_in,
+    input  wire [15:0] bias,    // 16-bit Q8.8 bias
+    output reg  [31:0] out_acc, // 32-bit accumulator
+    output reg  done
+);
+
+    integer i;
+    reg [ACC_WIDTH-1:0] acc;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            acc <= 0;
+            out_acc <= 0;
+            done <= 0;
+            i <= 0;
+        end else if (start) begin
+            acc <= 0;
+            for (i = 0; i < INPUTS; i = i + 1) begin
+                acc <= acc + $signed(pixel_in) * $signed(weight_in);
+            end
+            // Add bias (Q8.8)
+            acc <= acc + $signed(bias);
+            // ReLU
+            if (acc[ACC_WIDTH-1] == 1)
+                acc <= 0;
+            out_acc <= acc;
+            done <= 1;
+        end else begin
+            done <= 0;
+        end
+    end
+endmodule
+
+
+module mlp_top(
+    input wire clk,
+    input wire rst,
+    input wire start,
+    output wire [1:0] class_out
+);
+
+    // Example connections:
+    // - Instantiate 8 MAC units for layer1
+    // - Collect outputs, apply ReLU
+    // - Feed to 2 MAC units for layer2
+    // - Output classification: argmax
+
+    // TODO: wire declarations, interconnections
+endmodule
+
+
+`timescale 1ns / 1ps
+
+module mlp_top(
+    input  wire clk,
+    input  wire rst,
+    input  wire start,
+    input  wire [7:0] pixel_input [0:783],      // 784 input pixels
+    input  wire [7:0] weight_l1 [0:7][0:783],   // 8 neurons × 784 weights
+    input  wire [15:0] bias_l1 [0:7],           // 8 biases
+    input  wire [7:0] weight_l2 [0:1][0:7],     // 2 neurons × 8 weights
+    input  wire [15:0] bias_l2 [0:1],           // 2 biases
+    output reg  [1:0] class_out
+);
+
+    integer i, j;
+    reg signed [31:0] l1_out [0:7];
+    reg signed [31:0] l1_relu [0:7];
+    reg signed [31:0] l2_out [0:1];
+
+    // ---------------------
+    // Layer 1: 8 neurons
+    // ---------------------
+    always @(*) begin
+        for (i = 0; i < 8; i = i + 1) begin
+            l1_out[i] = 0;
+            for (j = 0; j < 784; j = j + 1) begin
+                l1_out[i] = l1_out[i] + $signed(pixel_input[j]) * $signed(weight_l1[i][j]);
+            end
+            l1_out[i] = l1_out[i] + $signed(bias_l1[i]);  // Add bias (Q8.8)
+            // ReLU
+            if (l1_out[i][31] == 1)
+                l1_relu[i] = 0;
+            else
+                l1_relu[i] = l1_out[i];
+        end
+    end
+
+    // ---------------------
+    // Layer 2: 2 neurons
+    // ---------------------
+    always @(*) begin
+        for (i = 0; i < 2; i = i + 1) begin
+            l2_out[i] = 0;
+            for (j = 0; j < 8; j = j + 1) begin
+                l2_out[i] = l2_out[i] + $signed(l1_relu[j]) * $signed(weight_l2[i][j]);
+            end
+            l2_out[i] = l2_out[i] + $signed(bias_l2[i]); // Add bias
+        end
+    end
+
+    // ---------------------
+    // Compare logits -> class_out
+    // ---------------------
+    always @(*) begin
+        if (l2_out[0] > l2_out[1])
+            class_out = 0;
+        else
+            class_out = 1;
+    end
+
+endmodule
+
+
+testbecnh :
+`timescale 1ns / 1ps
+
+module tb_mlp;
+
+    // ---------------------
+    // Parameters
+    // ---------------------
+    parameter PIXELS = 784;
+    parameter L1_NEURONS = 8;
+    parameter L2_NEURONS = 2;
+
+    // ---------------------
+    // Signals
+    // ---------------------
+    reg clk;
+    reg rst;
+    reg start;
+
+    reg [7:0] pixel_input [0:PIXELS-1];
+    reg [7:0] weight_l1 [0:L1_NEURONS-1][0:PIXELS-1];
+    reg [15:0] bias_l1   [0:L1_NEURONS-1];
+
+    reg [7:0] weight_l2 [0:L2_NEURONS-1][0:L1_NEURONS-1];
+    reg [15:0] bias_l2   [0:L2_NEURONS-1];
+
+    wire [1:0] class_out;
+
+    integer i,j;
+
+    // ---------------------
+    // Clock generation
+    // ---------------------
+    initial clk = 0;
+    always #5 clk = ~clk; // 100MHz simulation clock
+
+    // ---------------------
+    // DUT Instantiation
+    // ---------------------
+    mlp_top dut (
+        .clk(clk),
+        .rst(rst),
+        .start(start),
+        .pixel_input(pixel_input),
+        .weight_l1(weight_l1),
+        .bias_l1(bias_l1),
+        .weight_l2(weight_l2),
+        .bias_l2(bias_l2),
+        .class_out(class_out)
+    );
+
+    // ---------------------
+    // Load .mem files
+    // ---------------------
+    initial begin
+        // Load input image
+        $readmemh("mem_files/input_image.mem", pixel_input);
+
+        // Load layer1 weights and biases
+        for (i = 0; i < L1_NEURONS; i = i + 1) begin
+            for (j = 0; j < PIXELS; j = j + 1) begin
+                $readmemh("mem_files/weights_l1.mem", weight_l1[i], j, j);
+            end
+        end
+        $readmemh("mem_files/bias_l1.mem", bias_l1);
+
+        // Load layer2 weights and biases
+        for (i = 0; i < L2_NEURONS; i = i + 1) begin
+            for (j = 0; j < L1_NEURONS; j = j + 1) begin
+                $readmemh("mem_files/weights_l2.mem", weight_l2[i], j, j);
+            end
+        end
+        $readmemh("mem_files/bias_l2.mem", bias_l2);
+    end
+
+    // ---------------------
+    // Test sequence
+    // ---------------------
+    initial begin
+        rst = 1;
+        start = 0;
+        #20;
+        rst = 0;
+        #10;
+
+        // Start MLP
+        start = 1;
+        #10;
+        start = 0;
+
+        // Wait for combinational evaluation
+        #50;
+
+        $display("=== MLP Simulation Result ===");
+        $display("Predicted class: %d", class_out);
+        $stop;
+    end
+
+endmodule
+
+
+mlp_demo/
+ ├─ mlp_top.v
+ ├─ mac_unit.v
+ ├─ tb_mlp.v
+ ├─ mem_files/
+ │   ├─ weights_l1.mem
+ │   ├─ bias_l1.mem
+ │   ├─ weights_l2.mem
+ │   ├─ bias_l2.mem
+ │   └─ input_image.mem
+
+
+Step 1: Prepare Vivado Project
+
+Open Vivado → Create a new project → Name it mlp_demo
+
+Select RTL project → Do not specify FPGA part yet (simulation only for now)
+
+Add Verilog files:
+
+mlp_top.v
+
+tb_mlp.v
+
+mac_unit.v (MAC neuron)
+
+Copy all .mem files into the project folder:
+
+weights_l1.mem, bias_l1.mem
+
+weights_l2.mem, bias_l2.mem
+
+input_image.mem
+
+Step 2: Set Up Simulation
+
+In Vivado GUI → Go to Flow Navigator → Simulation → Run Simulation → Run Behavioral Simulation
+
+Make sure testbench is top module (tb_mlp)
+
+Check the console / waveform window
